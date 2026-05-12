@@ -92,8 +92,8 @@ export default function Dashboard() {
   const monthlyFixed = settings.bills.reduce((s, b) => s + b.amount, 0);
 
   // ── CLM income ─────────────────────────────────────────────────────────────
-  const clmMonthly = clmMonthlyExpected(settings.clmClients);
-  const clmThisWeek = clmDueThisWeek(settings.clmClients, today);
+  const clmMonthly = clmMonthlyExpected(settings.clmClients ?? []);
+  const clmThisWeek = clmDueThisWeek(settings.clmClients ?? [], today);
   const clmThisWeekTotal = clmThisWeek.reduce((s, c) => s + c.amount, 0);
   const clmLoggedThisMonth = transactions
     .filter((t) => t.category === "CLM Income")

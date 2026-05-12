@@ -141,9 +141,11 @@ type AppCtx = {
 const AppContext = createContext<AppCtx | null>(null);
 
 export function AppProvider({ children }: { children: ReactNode }) {
-  const [settings, setSettings] = useState<Settings>(() =>
-    load(KEYS.settings, DEFAULT_SETTINGS)
-  );
+  const [settings, setSettings] = useState<Settings>(() => {
+    // Merge with DEFAULT_SETTINGS so new fields added after initial save are always present
+    const stored = load(KEYS.settings, DEFAULT_SETTINGS);
+    return { ...DEFAULT_SETTINGS, ...stored };
+  });
   const [transactions, setTransactions] = useState<Tx[]>(() =>
     load(KEYS.transactions, [])
   );
