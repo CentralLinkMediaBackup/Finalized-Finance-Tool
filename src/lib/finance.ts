@@ -12,6 +12,16 @@ export type Debt = {
   note?: string;
 };
 
+// Central Link Media recurring client (monthly income)
+export type CLMClient = {
+  id: string;
+  name: string;
+  amount: number;
+  payDay: number;   // day of month they pay
+  active: boolean;
+  note: string;
+};
+
 export type Settings = {
   paycheck: number;
   paycheckDay: string;
@@ -25,6 +35,7 @@ export type Settings = {
   assets: { carValue: number; other: number };
   cashapp: number;
   chase: number;
+  clmClients: CLMClient[];   // Central Link Media monthly recurring
   theme?: "light" | "dark";
 };
 
@@ -40,7 +51,16 @@ export const SPEND_CATEGORIES = [
   "Entertainment",
   "Misc",
 ];
-export const ALL_CATEGORIES = [...SPEND_CATEGORIES, "Income", "Monthly Bill Payment", "Savings", "Injection Repayment", "Tilt Payment", "EarnIn Repayment"];
+export const ALL_CATEGORIES = [
+  ...SPEND_CATEGORIES,
+  "Income",
+  "CLM Income",
+  "Monthly Bill Payment",
+  "Savings",
+  "Injection Repayment",
+  "Tilt Payment",
+  "EarnIn Repayment",
+];
 
 export const TILT_APR = 35.99;
 export const TILT_INSTANT_FEE = 12;
@@ -55,7 +75,7 @@ export const DEFAULT_SETTINGS: Settings = {
   weeklyBudgets: {
     Groceries: 100,
     "Dining Out": 50,
-    Gas: 20,
+    Gas: 25,
     Shopping: 0,
     Entertainment: 0,
     Misc: 0,
@@ -90,6 +110,7 @@ export const DEFAULT_SETTINGS: Settings = {
   assets: { carValue: 8000, other: 0 },
   cashapp: 0,
   chase: 172.33,
+  clmClients: [],
 };
 
 export const fmt = (n: number) =>
@@ -133,17 +154,19 @@ export function monthRange(year: number, monthIndex: number) {
   return { start, end };
 }
 
-// Friday helpers
-// closestFridayOnOrAfter: if today is Friday returns today, else next Friday
 export function closestFridayOnOrAfter(d: Date) {
   const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  const day = x.getDay(); // 0=Sun..6=Sat
+  const day = x.getDay();
   const diff = (5 - day + 7) % 7;
   return addDays(x, diff);
 }
 export function nextFridayStrictly(d: Date) {
   const today = closestFridayOnOrAfter(d);
-  if (today.getDate() === d.getDate() && today.getMonth() === d.getMonth() && today.getFullYear() === d.getFullYear()) {
+  if (
+    today.getDate() === d.getDate() &&
+    today.getMonth() === d.getMonth() &&
+    today.getFullYear() === d.getFullYear()
+  ) {
     return addDays(today, 7);
   }
   return today;
@@ -180,6 +203,46 @@ export function netWeeklyTakeHome(s: Settings) {
   return s.paycheck + earnin;
 }
 
+// Which week type is the current date in (Zack's mental model)
+export type WeekType = "free" | "car" | "rent-save-1" | "rent-save-2";
+export function getWeekType(today = new Date()): WeekType {
+  const d = today.getDate();
+  if (d >= 1 && d <= 9) return "free";
+  if (d >= 10 && d <= 16) return "car";
+  if (d >= 17 && d <= 23) return "rent-save-1";
+  return "rent-save-2"; // 24–31 + next month 1–6 is handled as "free" on rollover
+}
+export const WEEK_TYPE_LABELS: Record<WeekType, string> = {
+  "free": "Free Week 🎉",
+  "car": "Car Week 🚗",
+  "rent-save-1": "Rent Saving Wk 1 🏠",
+  "rent-save-2": "Rent Saving Wk 2 🏠",
+};
+export const WEEK_TYPE_SPEND_CAP: Record<WeekType, number | null> = {
+  "free": null,       // no cap
+  "car": null,        // no hard cap, just reserve $530
+  "rent-save-1": 250,
+  "rent-save-2": 250,
+};
+
+// CLM expected income this month from recurring clients
+export function clmMonthlyExpected(clients: CLMClient[]): number {
+  return clients
+    .filter((c) => c.active)
+    .reduce((sum, c) => sum + c.amount, 0);
+}
+
+// CLM clients paying this week (Sunday–Saturday)
+export function clmDueThisWeek(clients: CLMClient[], today = new Date()): CLMClient[] {
+  const wkStart = startOfWeek(today);
+  const wkEnd = endOfWeek(today);
+  return clients.filter((c) => {
+    if (!c.active) return false;
+    const payDate = new Date(today.getFullYear(), today.getMonth(), c.payDay);
+    return payDate >= wkStart && payDate <= wkEnd;
+  });
+}
+
 // ---- Tilt schedule ----
 export type TiltPlan = "1" | "2" | "4";
 export type TiltScheduleItem = { dueDate: Date; amount: number };
@@ -189,16 +252,15 @@ export function tiltSchedule(useDate: Date, principal: number, plan: TiltPlan): 
   if (plan === "1") {
     return [{ dueDate: closestFri, amount: round2(principal) }];
   }
-  // simple interest based on weighted average days to payment
   const offsetsWeeks = plan === "2" ? [2, 4] : [2, 4, 6, 8];
-  const avgDays = (offsetsWeeks.reduce((s, w) => s + w * 7, 0) / offsetsWeeks.length);
+  const avgDays = offsetsWeeks.reduce((s, w) => s + w * 7, 0) / offsetsWeeks.length;
   const interest = principal * (TILT_APR / 100) * (avgDays / 365);
   const total = principal + interest;
   const each = round2(total / offsetsWeeks.length);
   return offsetsWeeks.map((w, i) => {
     const due = addDays(closestFri, w * 7);
-    // last payment absorbs rounding
-    const amt = i === offsetsWeeks.length - 1 ? round2(total - each * (offsetsWeeks.length - 1)) : each;
+    const amt =
+      i === offsetsWeeks.length - 1 ? round2(total - each * (offsetsWeeks.length - 1)) : each;
     return { dueDate: due, amount: amt };
   });
 }
@@ -206,7 +268,7 @@ export function tiltSchedule(useDate: Date, principal: number, plan: TiltPlan): 
 export function tiltTotalOwed(principal: number, plan: TiltPlan): number {
   if (plan === "1") return round2(principal);
   const offsetsWeeks = plan === "2" ? [2, 4] : [2, 4, 6, 8];
-  const avgDays = (offsetsWeeks.reduce((s, w) => s + w * 7, 0) / offsetsWeeks.length);
+  const avgDays = offsetsWeeks.reduce((s, w) => s + w * 7, 0) / offsetsWeeks.length;
   const interest = principal * (TILT_APR / 100) * (avgDays / 365);
   return round2(principal + interest);
 }

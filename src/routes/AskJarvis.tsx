@@ -5,7 +5,10 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Send, Bot } from "lucide-react";
 import { useApp } from "@/contexts/AppContext";
-import { billsDueWithin, startOfWeek, endOfWeek, parseYmd, addDays, fmt } from "@/lib/finance";
+import {
+  billsDueWithin, startOfWeek, endOfWeek, parseYmd, addDays, fmt,
+  getWeekType, WEEK_TYPE_LABELS, clmMonthlyExpected, clmDueThisWeek,
+} from "@/lib/finance";
 import { cn } from "@/lib/utils";
 
 type Msg = { role: "user" | "assistant"; content: string };
@@ -41,21 +44,33 @@ export default function AskJarvis() {
     const today = new Date();
     const wkStart = startOfWeek(today);
     const wkEnd = endOfWeek(today);
-    const horizon = addDays(today, 14);
-    const balance = settings.cashapp + settings.chase + settings.extraIncome;
-    const billsNext7 = billsDueWithin(settings.bills, 7, today);
-    const billsNext14 = billsDueWithin(settings.bills, 14, today);
-    const billsSum14 = billsNext14.reduce((s, b) => s + b.amount, 0);
+    const horizon7 = addDays(today, 7);
 
-    const openTilt = tiltPayments.filter((p) => !p.paid && parseYmd(p.due_date) <= horizon);
+    // Balance = actual cash balances only
+    const balance = settings.cashapp + settings.chase;
+
+    const billsNext7 = billsDueWithin(settings.bills, 7, today);
+    const billsSum7 = billsNext7.reduce((s, b) => s + b.amount, 0);
+
+    const openTilt = tiltPayments.filter((p) => !p.paid && parseYmd(p.due_date) <= horizon7);
     const tiltSum = openTilt.reduce((s, p) => s + Number(p.amount), 0);
+
     const openInj = injections.filter(
-      (i) => i.must_repay && !i.repaid && i.repay_due_date && parseYmd(i.repay_due_date) <= horizon
+      (i) => i.must_repay && !i.repaid && i.repay_due_date && parseYmd(i.repay_due_date) <= horizon7
     );
     const injSum = openInj.reduce((s, i) => s + Number(i.amount), 0);
+
     const earninOwed = earninWithdrawals.filter((w) => !w.repaid).reduce((s, w) => s + Number(w.amount), 0);
-    const obligationsTotal = billsSum14 + tiltSum + injSum + earninOwed;
-    const safe = Math.max(0, balance - obligationsTotal);
+
+    const obligationsTotal = billsSum7 + tiltSum + injSum + earninOwed;
+    const spendable = balance - obligationsTotal; // NO floor — can be negative
+
+    // Breakdown string for Jarvis math
+    const breakdownParts: string[] = [];
+    if (billsSum7 > 0) breakdownParts.push(`bills ${fmt(billsSum7)}`);
+    if (earninOwed > 0) breakdownParts.push(`EarnIn repay ${fmt(earninOwed)}`);
+    if (tiltSum > 0) breakdownParts.push(`Tilt ${fmt(tiltSum)}`);
+    if (injSum > 0) breakdownParts.push(`injections ${fmt(injSum)}`);
 
     const weekByCategory: Record<string, number> = {};
     transactions.forEach((t) => {
@@ -77,31 +92,41 @@ export default function AskJarvis() {
       settings.assets.other -
       settings.debts.reduce((s, d) => s + d.balance, 0);
 
+    const weekType = getWeekType(today);
+    const clmExpected = clmMonthlyExpected(settings.clmClients || []);
+    const clmThisWeek = clmDueThisWeek(settings.clmClients || [], today);
+
     return {
+      cashapp: fmt(settings.cashapp),
+      chase: fmt(settings.chase),
       balance: fmt(balance),
-      safeToSpend: fmt(safe),
+      spendable: fmt(spendable),
       obligationsTotal: fmt(obligationsTotal),
+      obligationsBreakdown: breakdownParts.length ? breakdownParts.join(" + ") : "none",
+      weekType: `${weekType} — ${WEEK_TYPE_LABELS[weekType]}`,
       weekByCategory: Object.entries(weekByCategory)
         .map(([k, v]) => `${k}: ${fmt(v)}`)
-        .join(", "),
+        .join(", ") || "nothing yet",
       weeklyBudgets: Object.entries(settings.weeklyBudgets)
-        .map(([k, v]) => `${k} $${v}`)
+        .map(([k, v]) => `${k} $${v}/wk`)
         .join(", "),
-      billsNext7: billsNext7.map((b) => `${b.name} ${fmt(b.amount)}`).join(", "),
-      billsNext14: billsNext14.map((b) => `${b.name} ${fmt(b.amount)}`).join(", "),
+      billsNext7: billsNext7.map((b) => `${b.name} ${fmt(b.amount)}`).join(", ") || "none",
       earnin: settings.earnin.active
-        ? `active, maxBal=${fmt(settings.earnin.maxBalance)}, owed=${fmt(earninOwed)}`
+        ? `active — owed ${fmt(earninOwed)}, standard repay $417.97/Friday`
         : "not active",
-      tiltPayments: openTilt.map((p) => `due ${p.due_date}: ${fmt(Number(p.amount))}`).join(", "),
-      injectionRepayments: openInj.map((i) => `${i.source} due ${i.repay_due_date}: ${fmt(Number(i.amount))}`).join(", "),
+      tiltPayments: openTilt.map((p) => `due ${p.due_date}: ${fmt(Number(p.amount))}`).join(", ") || "none",
+      injectionRepayments: openInj.map((i) => `${i.source} due ${i.repay_due_date}: ${fmt(Number(i.amount))}`).join(", ") || "none",
+      paycheck: fmt(settings.paycheck),
+      clmMonthlyExpected: fmt(clmExpected),
+      clmThisWeek: clmThisWeek.length
+        ? clmThisWeek.map((c) => `${c.name} ${fmt(c.amount)} (day ${c.payDay})`).join(", ")
+        : "none",
+      extraIncome: fmt(settings.extraIncome),
       savingsTotal: fmt(savingsTotal),
       netWorth: fmt(netWorth),
       debts: settings.debts
-        .map((d) => `${d.name}: bal=${fmt(d.balance)} apr=${d.apr}% min=${fmt(d.minPayment)}${d.note ? " note: " + d.note : ""}`)
+        .map((d) => `${d.name}: bal=${fmt(d.balance)} apr=${d.apr}% min=${fmt(d.minPayment)}${d.note ? " (" + d.note + ")" : ""}`)
         .join("; "),
-      extraIncome: fmt(settings.extraIncome),
-      cashapp: fmt(settings.cashapp),
-      chase: fmt(settings.chase),
     };
   }, [settings, transactions, injections, tiltPayments, earninWithdrawals, savings]);
 

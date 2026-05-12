@@ -11,7 +11,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { type Bill, type Debt, fmt, ymd } from "@/lib/finance";
+import { type Bill, type Debt, type CLMClient, fmt, ymd } from "@/lib/finance";
 import { toast } from "sonner";
 import type { ReactNode } from "react";
 
@@ -47,6 +47,26 @@ export function SettingsDrawer({
   const delBill = (i: number) => {
     update({ bills: settings.bills.filter((_, idx) => idx !== i) });
     toast.success("Bill deleted");
+  };
+
+  const setCLMClient = (id: string, patch: Partial<CLMClient>) => {
+    const clients = (settings.clmClients || []).map((c) => c.id === id ? { ...c, ...patch } : c);
+    update({ clmClients: clients });
+  };
+  const addCLMClient = () => {
+    const newClient: CLMClient = {
+      id: crypto.randomUUID(),
+      name: "New Client",
+      amount: 0,
+      payDay: 1,
+      active: true,
+      note: "",
+    };
+    update({ clmClients: [...(settings.clmClients || []), newClient] });
+  };
+  const delCLMClient = (id: string) => {
+    update({ clmClients: (settings.clmClients || []).filter((c) => c.id !== id) });
+    toast.success("Client removed");
   };
 
   const setDebt = (i: number, patch: Partial<Debt>) => {
@@ -101,6 +121,61 @@ export function SettingsDrawer({
               <Input type="number" step="0.01" value={settings.extraIncome}
                 onChange={(e) => update({ extraIncome: num(e.target.value) })} />
             </Field>
+          </Section>
+
+          {/* CLM Clients */}
+          <Section title="Central Link Media Clients">
+            <p className="text-xs text-muted-foreground">
+              Monthly recurring clients — set the day of month they pay.
+            </p>
+            <div className="space-y-2">
+              {(settings.clmClients || []).map((c) => (
+                <div key={c.id} className="p-3 rounded-lg bg-muted/40 space-y-2">
+                  <div className="flex gap-2 items-center">
+                    <Input
+                      value={c.name}
+                      onChange={(e) => setCLMClient(c.id, { name: e.target.value })}
+                      placeholder="Client name"
+                      className="flex-1"
+                    />
+                    <Switch
+                      checked={c.active}
+                      onCheckedChange={(v) => setCLMClient(c.id, { active: v })}
+                    />
+                    <Button variant="ghost" size="icon" onClick={() => delCLMClient(c.id)}>
+                      <Trash2 className="h-4 w-4 text-destructive" />
+                    </Button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Field label="Monthly Amount">
+                      <Input
+                        type="number"
+                        step="0.01"
+                        value={c.amount}
+                        onChange={(e) => setCLMClient(c.id, { amount: num(e.target.value) })}
+                      />
+                    </Field>
+                    <Field label="Pay Day (of month)">
+                      <Input
+                        type="number"
+                        min={1}
+                        max={31}
+                        value={c.payDay}
+                        onChange={(e) => setCLMClient(c.id, { payDay: parseInt(e.target.value) || 1 })}
+                      />
+                    </Field>
+                  </div>
+                  <Input
+                    placeholder="Note (optional)"
+                    value={c.note}
+                    onChange={(e) => setCLMClient(c.id, { note: e.target.value })}
+                  />
+                </div>
+              ))}
+              <Button variant="outline" size="sm" onClick={addCLMClient}>
+                <Plus className="h-4 w-4 mr-1" /> Add CLM Client
+              </Button>
+            </div>
           </Section>
 
           {/* EarnIn */}
