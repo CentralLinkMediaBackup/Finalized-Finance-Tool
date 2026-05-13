@@ -3,7 +3,7 @@ import { NavLink, useLocation } from "react-router-dom";
 import {
   LayoutDashboard, PlusCircle, MessageSquare, BarChart3,
   CalendarDays, Calendar as CalIcon, PiggyBank, Settings as SettingsIcon,
-  Moon, Sun,
+  Moon, Sun, CreditCard, Star,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -11,13 +11,15 @@ import { SettingsDrawer } from "./SettingsDrawer";
 import { useApp } from "@/contexts/AppContext";
 
 const tabs = [
-  { to: "/",         label: "Dashboard", icon: LayoutDashboard },
-  { to: "/log",      label: "Log Spend",  icon: PlusCircle },
-  { to: "/calendar", label: "Calendar",   icon: CalIcon },
-  { to: "/savings",  label: "Savings",    icon: PiggyBank },
-  { to: "/jarvis",   label: "Ask Jarvis", icon: MessageSquare },
-  { to: "/charts",   label: "Charts",     icon: BarChart3 },
-  { to: "/yearly",   label: "Yearly",     icon: CalendarDays },
+  { to: "/",          label: "Dashboard",  icon: LayoutDashboard },
+  { to: "/log",       label: "Log Spend",  icon: PlusCircle },
+  { to: "/afterpay",  label: "Afterpay",   icon: CreditCard },
+  { to: "/wishlist",  label: "Wish List",  icon: Star },
+  { to: "/savings",   label: "Savings",    icon: PiggyBank },
+  { to: "/jarvis",    label: "Ask Jarvis", icon: MessageSquare },
+  { to: "/charts",    label: "Charts",     icon: BarChart3 },
+  { to: "/calendar",  label: "Calendar",   icon: CalIcon },
+  { to: "/yearly",    label: "Yearly",     icon: CalendarDays },
 ];
 
 export function AppShell({ children }: { children: ReactNode }) {
@@ -96,9 +98,9 @@ export function AppShell({ children }: { children: ReactNode }) {
         </main>
       </div>
 
-      {/* Mobile bottom nav */}
+      {/* Mobile bottom nav — scrollable */}
       <nav className="md:hidden fixed bottom-0 inset-x-0 z-40 border-t border-border bg-background/95 backdrop-blur">
-        <div className="grid grid-cols-7">
+        <div className="flex overflow-x-auto scrollbar-none">
           {tabs.map((t) => {
             const Icon = t.icon;
             return (
@@ -108,7 +110,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 end={t.to === "/"}
                 className={({ isActive }) =>
                   cn(
-                    "flex flex-col items-center justify-center gap-0.5 py-2 min-h-[56px] text-[10px] font-medium",
+                    "flex flex-col items-center justify-center gap-0.5 py-2 min-h-[56px] text-[10px] font-medium flex-shrink-0 px-3",
                     isActive ? "text-primary" : "text-muted-foreground"
                   )
                 }

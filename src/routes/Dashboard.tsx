@@ -58,18 +58,15 @@ export default function Dashboard() {
   const nextSunday = addDays(startOfWeek(today), 7);
   const nextFriday = closestFridayOnOrAfter(today);
   const paycheckThisWeek = nextFriday < nextSunday ? settings.paycheck : 0;
-  const earninThisWeek = (settings.earnin.active && nextFriday < nextSunday)
-    ? settings.earnin.fri + settings.earnin.sat + settings.earnin.sun
-    : 0;
 
-  // Total obligations due this week
-  const obligationsThisWeek = billsReserveThisWeek + tiltDue + injRepayDue + earninOwed;
+  // EarnIn is a zero-net float: repay $417.97 Friday, pull $417.97 back Fri/Sat/Sun.
+  // Including both inflates/deflates spendable when they don't exactly match logged amounts.
+  // Exclude EarnIn from spendable — show owed amount as a separate informational line.
+  const obligationsThisWeek = billsReserveThisWeek + tiltDue + injRepayDue;
 
-  // Spendable = full cash flow through end of week:
-  // current balance + paycheck arriving Friday + new EarnIn pull this cycle
-  // minus everything owed this week (bills + EarnIn repay of LAST cycle + Tilt)
-  // EarnIn nets ~$0 (repay last cycle, pull new cycle), paycheck is the real driver
-  const spendable = balance + paycheckThisWeek + earninThisWeek - obligationsThisWeek;
+  // Spendable = balance + this week's paycheck - bills/Tilt/injections
+  // EarnIn is excluded (it nets $0 over the cycle — repay Friday, pull back Fri–Sun)
+  const spendable = balance + paycheckThisWeek - obligationsThisWeek;
 
   // ── Spending this period ───────────────────────────────────────────────────
   const spentToday = transactions
@@ -211,7 +208,6 @@ export default function Dashboard() {
             {paycheckThisWeek > 0 && (
               <div className="text-xs text-success border-t pt-2">
                 ✓ Paycheck arriving this week: {fmt(paycheckThisWeek)}
-                {earninThisWeek > 0 && ` + EarnIn ${fmt(earninThisWeek)}`}
               </div>
             )}
           </CardContent>
@@ -284,8 +280,36 @@ export default function Dashboard() {
         <CardContent className="grid sm:grid-cols-3 gap-2">
           <InjectMoneyDialog />
           <UseTiltDialog />
-          <EarnInWithdrawDialog />
+          {settings.earnin.active
+            ? <EarnInWithdrawDialog />
+            : (
+              <Button variant="outline" onClick={() => updateSettings({ earnin: { ...settings.earnin, active: true } })}>
+                Re-enable EarnIn
+              </Button>
+            )
+          }
         </CardContent>
+        {settings.earnin.active && (
+          <CardContent className="pt-0">
+            <div className="rounded-lg border border-dashed border-muted-foreground/30 p-3 flex items-center justify-between gap-3">
+              <div className="text-xs text-muted-foreground">
+                <span className="font-medium text-foreground">Finally paid off EarnIn?</span>{" "}
+                Click to stop tracking the cycle.
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                className="shrink-0 border-destructive/40 text-destructive hover:bg-destructive/10"
+                onClick={() => {
+                  updateSettings({ earnin: { ...settings.earnin, active: false } });
+                  toast.success("EarnIn marked as paid off. Congrats!");
+                }}
+              >
+                Mark Free from EarnIn
+              </Button>
+            </div>
+          </CardContent>
+        )}
       </Card>
 
       {/* Balance update */}

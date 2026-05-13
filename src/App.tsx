@@ -7,6 +7,8 @@ import Charts from "@/routes/Charts";
 import YearlyView from "@/routes/YearlyView";
 import CalendarView from "@/routes/CalendarView";
 import Savings from "@/routes/Savings";
+import Afterpay from "@/routes/Afterpay";
+import WishList from "@/routes/WishList";
 
 export default function App() {
   return (
@@ -19,6 +21,8 @@ export default function App() {
         <Route path="/yearly" element={<YearlyView />} />
         <Route path="/calendar" element={<CalendarView />} />
         <Route path="/savings" element={<Savings />} />
+        <Route path="/afterpay" element={<Afterpay />} />
+        <Route path="/wishlist" element={<WishList />} />
       </Routes>
     </AppShell>
   );

@@ -71,6 +71,28 @@ export type SavingsEntry = {
   created_at: string;
 };
 
+export type AfterItem = {
+  id: string;
+  name: string;
+  totalCost: number;
+  numPayments: number;    // typically 4
+  paymentAmount: number;  // totalCost / numPayments
+  firstPaymentDate: string; // YYYY-MM-DD (date of first charge)
+  frequencyDays: number;  // 14 = every 2 weeks
+  paidCount: number;      // how many installments have been paid
+  note: string;
+  created_at: string;
+};
+
+export type WishItem = {
+  id: string;
+  name: string;
+  estimatedPrice: number;
+  link: string;
+  notes: string;
+  created_at: string;
+};
+
 // ─── Storage keys ────────────────────────────────────────────────────────────
 const KEYS = {
   settings: "zfcc_settings",
@@ -80,6 +102,8 @@ const KEYS = {
   tiltPayments: "zfcc_tilt_payments",
   earninWithdrawals: "zfcc_earnin_withdrawals",
   savings: "zfcc_savings",
+  afterpay: "zfcc_afterpay",
+  wishlist: "zfcc_wishlist",
 } as const;
 
 function load<T>(key: string, fallback: T): T {
@@ -136,6 +160,18 @@ type AppCtx = {
   savings: SavingsEntry[];
   addSavings: (s: Omit<SavingsEntry, "id" | "created_at">) => void;
   deleteSavings: (id: string) => void;
+
+  // Afterpay
+  afterItems: AfterItem[];
+  addAfterItem: (item: Omit<AfterItem, "id" | "created_at">) => void;
+  updateAfterItem: (id: string, patch: Partial<Omit<AfterItem, "id" | "created_at">>) => void;
+  deleteAfterItem: (id: string) => void;
+
+  // Wish list
+  wishItems: WishItem[];
+  addWishItem: (item: Omit<WishItem, "id" | "created_at">) => void;
+  updateWishItem: (id: string, patch: Partial<Omit<WishItem, "id" | "created_at">>) => void;
+  deleteWishItem: (id: string) => void;
 };
 
 const AppContext = createContext<AppCtx | null>(null);
@@ -164,6 +200,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [savingsEntries, setSavings] = useState<SavingsEntry[]>(() =>
     load(KEYS.savings, [])
   );
+  const [afterItems, setAfterItems] = useState<AfterItem[]>(() =>
+    load(KEYS.afterpay, [])
+  );
+  const [wishItems, setWishItems] = useState<WishItem[]>(() =>
+    load(KEYS.wishlist, [])
+  );
 
   // Persist on every state change
   useEffect(() => { save(KEYS.settings, settings); }, [settings]);
@@ -173,6 +215,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => { save(KEYS.tiltPayments, tiltPayments); }, [tiltPayments]);
   useEffect(() => { save(KEYS.earninWithdrawals, earninWithdrawals); }, [earninWithdrawals]);
   useEffect(() => { save(KEYS.savings, savingsEntries); }, [savingsEntries]);
+  useEffect(() => { save(KEYS.afterpay, afterItems); }, [afterItems]);
+  useEffect(() => { save(KEYS.wishlist, wishItems); }, [wishItems]);
 
   const updateSettings = useCallback((patch: Partial<Settings>) => {
     setSettings((s) => ({ ...s, ...patch }));
@@ -240,6 +284,28 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setSavings((prev) => prev.filter((s) => s.id !== id));
   }, []);
 
+  // Afterpay
+  const addAfterItem = useCallback((item: Omit<AfterItem, "id" | "created_at">) => {
+    setAfterItems((prev) => [{ ...item, id: uid(), created_at: now() }, ...prev]);
+  }, []);
+  const updateAfterItem = useCallback((id: string, patch: Partial<Omit<AfterItem, "id" | "created_at">>) => {
+    setAfterItems((prev) => prev.map((x) => (x.id === id ? { ...x, ...patch } : x)));
+  }, []);
+  const deleteAfterItem = useCallback((id: string) => {
+    setAfterItems((prev) => prev.filter((x) => x.id !== id));
+  }, []);
+
+  // Wish list
+  const addWishItem = useCallback((item: Omit<WishItem, "id" | "created_at">) => {
+    setWishItems((prev) => [{ ...item, id: uid(), created_at: now() }, ...prev]);
+  }, []);
+  const updateWishItem = useCallback((id: string, patch: Partial<Omit<WishItem, "id" | "created_at">>) => {
+    setWishItems((prev) => prev.map((x) => (x.id === id ? { ...x, ...patch } : x)));
+  }, []);
+  const deleteWishItem = useCallback((id: string) => {
+    setWishItems((prev) => prev.filter((x) => x.id !== id));
+  }, []);
+
   return (
     <AppContext.Provider
       value={{
@@ -249,6 +315,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         tiltUses, tiltPayments, addTiltUse, updateTiltPayment, deleteTiltUse,
         earninWithdrawals, addEarninWithdrawal, updateEarninWithdrawal, deleteEarninWithdrawal,
         savings: savingsEntries, addSavings, deleteSavings,
+        afterItems, addAfterItem, updateAfterItem, deleteAfterItem,
+        wishItems, addWishItem, updateWishItem, deleteWishItem,
       }}
     >
       {children}
