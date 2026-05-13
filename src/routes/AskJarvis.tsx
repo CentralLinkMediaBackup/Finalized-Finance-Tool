@@ -3,7 +3,7 @@ import { PageWrap } from "@/components/AppShell";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Send, Bot } from "lucide-react";
+import { Send, Bot, Brain } from "lucide-react";
 import { useApp } from "@/contexts/AppContext";
 import {
   billsDueWithin, startOfWeek, endOfWeek, parseYmd, addDays, fmt,
@@ -11,22 +11,25 @@ import {
   closestFridayOnOrAfter,
 } from "@/lib/finance";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 type Msg = { role: "user" | "assistant"; content: string };
+type JarvisAction = { name: string; args: Record<string, unknown> };
 
 const SUGGESTIONS = [
+  "Why is my safe to spend what it is?",
   "How much can I spend on dinner tonight?",
   "Should I take $200 from EarnIn today?",
-  "Best Tilt repayment plan if I borrow $300?",
+  "Best Tilt plan if I borrow $300?",
   "Am I on track this month?",
   "What's the fastest way to pay off my debt?",
-  "How over limit am I on Capital One?",
 ];
 
 const WORKER_URL = import.meta.env.VITE_JARVIS_WORKER_URL as string || "/api/ask-jarvis";
+const MEMORY_KEY = "zfcc_jarvis_memory";
 
 export default function AskJarvis() {
-  const { settings, transactions, injections, tiltPayments, earninWithdrawals, savings } = useApp();
+  const { settings, updateSettings, transactions, injections, tiltPayments, earninWithdrawals, savings } = useApp();
   const [messages, setMessages] = useState<Msg[]>([
     {
       role: "assistant",
@@ -35,6 +38,7 @@ export default function AskJarvis() {
   ]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [memory, setMemory] = useState<string>(() => localStorage.getItem(MEMORY_KEY) || "");
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -47,7 +51,6 @@ export default function AskJarvis() {
     const wkEnd = endOfWeek(today);
     const horizon7 = addDays(today, 7);
 
-    // Balance = actual cash balances only
     const balance = settings.cashapp + settings.chase;
 
     const billsNext7 = billsDueWithin(settings.bills, 7, today);
@@ -63,7 +66,6 @@ export default function AskJarvis() {
 
     const earninOwed = earninWithdrawals.filter((w) => !w.repaid).reduce((s, w) => s + Number(w.amount), 0);
 
-    // Incoming this week (same logic as Dashboard)
     const nextSunday = addDays(startOfWeek(today), 7);
     const nextFriday = closestFridayOnOrAfter(today);
     const paycheckThisWeek = nextFriday < nextSunday ? settings.paycheck : 0;
@@ -74,7 +76,6 @@ export default function AskJarvis() {
     const obligationsTotal = billsSum7 + tiltSum + injSum + earninOwed;
     const spendable = balance + paycheckThisWeek + earninThisWeek - obligationsTotal;
 
-    // Breakdown string for Jarvis math
     const breakdownParts: string[] = [];
     if (paycheckThisWeek > 0) breakdownParts.push(`+paycheck ${fmt(paycheckThisWeek)}`);
     if (earninThisWeek > 0) breakdownParts.push(`+EarnIn pull ${fmt(earninThisWeek)}`);
@@ -97,15 +98,12 @@ export default function AskJarvis() {
     );
 
     const netWorth =
-      settings.cashapp +
-      settings.chase +
-      settings.assets.carValue +
-      settings.assets.other -
-      settings.debts.reduce((s, d) => s + d.balance, 0);
+      settings.cashapp + settings.chase + settings.assets.carValue + settings.assets.other
+      - settings.debts.reduce((s, d) => s + d.balance, 0);
 
     const weekType = getWeekType(today);
-    const clmExpected = clmMonthlyExpected(settings.clmClients || []);
-    const clmThisWeek = clmDueThisWeek(settings.clmClients || [], today);
+    const clmExpected = clmMonthlyExpected(settings.clmClients ?? []);
+    const clmThisWeek = clmDueThisWeek(settings.clmClients ?? [], today);
 
     return {
       cashapp: fmt(settings.cashapp),
@@ -115,12 +113,8 @@ export default function AskJarvis() {
       obligationsTotal: fmt(obligationsTotal),
       obligationsBreakdown: breakdownParts.length ? breakdownParts.join(" + ") : "none",
       weekType: `${weekType} — ${WEEK_TYPE_LABELS[weekType]}`,
-      weekByCategory: Object.entries(weekByCategory)
-        .map(([k, v]) => `${k}: ${fmt(v)}`)
-        .join(", ") || "nothing yet",
-      weeklyBudgets: Object.entries(settings.weeklyBudgets)
-        .map(([k, v]) => `${k} $${v}/wk`)
-        .join(", "),
+      weekByCategory: Object.entries(weekByCategory).map(([k, v]) => `${k}: ${fmt(v)}`).join(", ") || "nothing yet",
+      weeklyBudgets: Object.entries(settings.weeklyBudgets).map(([k, v]) => `${k} $${v}/wk`).join(", "),
       billsNext7: billsNext7.map((b) => `${b.name} ${fmt(b.amount)}`).join(", ") || "none",
       earnin: settings.earnin.active
         ? `active — owed ${fmt(earninOwed)}, standard repay $417.97/Friday`
@@ -141,6 +135,51 @@ export default function AskJarvis() {
     };
   }, [settings, transactions, injections, tiltPayments, earninWithdrawals, savings]);
 
+  const applyActions = (actions: JarvisAction[]) => {
+    for (const action of actions) {
+      if (action.name === "update_balances") {
+        const patch: Record<string, number> = {};
+        if (typeof action.args.cashapp === "number") patch.cashapp = action.args.cashapp;
+        if (typeof action.args.chase === "number") patch.chase = action.args.chase;
+        if (Object.keys(patch).length) {
+          updateSettings(patch);
+          toast.success(
+            `Jarvis updated: ${Object.entries(patch).map(([k, v]) => `${k} → ${fmt(v)}`).join(", ")}`
+          );
+        }
+      } else if (action.name === "update_paycheck") {
+        if (typeof action.args.amount === "number") {
+          updateSettings({ paycheck: action.args.amount });
+          toast.success(`Jarvis updated paycheck → ${fmt(action.args.amount)}`);
+        }
+      } else if (action.name === "update_earnin") {
+        const earnin = { ...settings.earnin };
+        let changed = false;
+        if (typeof action.args.fri === "number") { earnin.fri = action.args.fri; changed = true; }
+        if (typeof action.args.sat === "number") { earnin.sat = action.args.sat; changed = true; }
+        if (typeof action.args.sun === "number") { earnin.sun = action.args.sun; changed = true; }
+        if (typeof action.args.repayment === "number") { earnin.repayment = action.args.repayment; changed = true; }
+        if (changed) {
+          updateSettings({ earnin });
+          toast.success("Jarvis updated EarnIn settings");
+        }
+      } else if (action.name === "update_extra_income") {
+        if (typeof action.args.amount === "number") {
+          updateSettings({ extraIncome: action.args.amount });
+          toast.success(`Jarvis updated extra income → ${fmt(action.args.amount)}`);
+        }
+      } else if (action.name === "save_preference") {
+        if (typeof action.args.note === "string") {
+          const existing = localStorage.getItem(MEMORY_KEY) || "";
+          const updated = existing ? `${existing}\n• ${action.args.note}` : `• ${action.args.note}`;
+          localStorage.setItem(MEMORY_KEY, updated);
+          setMemory(updated);
+          toast.success("Jarvis saved your preference to memory");
+        }
+      }
+    }
+  };
+
   const send = async (text: string) => {
     if (!text.trim() || loading) return;
     const userMsg: Msg = { role: "user", content: text };
@@ -156,6 +195,7 @@ export default function AskJarvis() {
         body: JSON.stringify({
           messages: next.map((m) => ({ role: m.role, content: m.content })),
           snapshot,
+          memory,
         }),
       });
 
@@ -169,48 +209,12 @@ export default function AskJarvis() {
         return;
       }
 
-      const contentType = resp.headers.get("content-type") || "";
-      if (contentType.includes("text/event-stream")) {
-        // Streaming response
-        const reader = resp.body!.getReader();
-        const decoder = new TextDecoder();
-        let buffer = "";
-        let acc = "";
-        setMessages((m) => [...m, { role: "assistant", content: "" }]);
+      const json = await resp.json() as { reply?: string; text?: string; actions?: JarvisAction[] };
+      const reply = json.reply || json.text || "No response";
+      const actions = json.actions || [];
 
-        let done = false;
-        while (!done) {
-          const { value, done: rd } = await reader.read();
-          if (rd) break;
-          buffer += decoder.decode(value, { stream: true });
-          let nl: number;
-          while ((nl = buffer.indexOf("\n")) !== -1) {
-            let line = buffer.slice(0, nl);
-            buffer = buffer.slice(nl + 1);
-            if (line.endsWith("\r")) line = line.slice(0, -1);
-            if (!line.startsWith("data: ")) continue;
-            const data = line.slice(6).trim();
-            if (data === "[DONE]") { done = true; break; }
-            try {
-              const j = JSON.parse(data) as { choices?: { delta?: { content?: string } }[] };
-              const delta = j.choices?.[0]?.delta?.content;
-              if (delta) {
-                acc += delta;
-                setMessages((m) => {
-                  const copy = [...m];
-                  copy[copy.length - 1] = { role: "assistant", content: acc };
-                  return copy;
-                });
-              }
-            } catch { buffer = line + "\n" + buffer; break; }
-          }
-        }
-      } else {
-        // JSON response
-        const json = await resp.json() as { reply?: string; text?: string };
-        const reply = json.reply || json.text || "No response";
-        setMessages((m) => [...m, { role: "assistant", content: reply }]);
-      }
+      applyActions(actions);
+      setMessages((m) => [...m, { role: "assistant", content: reply }]);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Unknown error";
       setMessages((m) => [...m, { role: "assistant", content: `Network hiccup: ${msg}` }]);
@@ -221,7 +225,16 @@ export default function AskJarvis() {
 
   return (
     <PageWrap title="Ask Jarvis" subtitle="Your AI finance copilot">
-      <Card className="flex flex-col" style={{ height: "calc(100vh - 220px)", minHeight: "400px" }}>
+      {memory && (
+        <div className="mb-3 flex items-start gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-xs text-muted-foreground">
+          <Brain className="h-3.5 w-3.5 mt-0.5 text-primary flex-shrink-0" />
+          <div>
+            <span className="font-medium text-primary">Memory active</span>
+            <span className="ml-1">— Jarvis remembers your preferences across chats</span>
+          </div>
+        </div>
+      )}
+      <Card className="flex flex-col" style={{ height: memory ? "calc(100vh - 260px)" : "calc(100vh - 220px)", minHeight: "400px" }}>
         <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-3">
           {messages.map((m, i) => (
             <div key={i} className={cn("flex", m.role === "user" ? "justify-end" : "justify-start")}>
@@ -274,7 +287,7 @@ export default function AskJarvis() {
             <Input
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Ask Jarvis anything…"
+              placeholder="Ask Jarvis anything, or say 'update my chase to $200'…"
               disabled={loading}
             />
             <Button type="submit" disabled={loading || !input.trim()} size="icon">
