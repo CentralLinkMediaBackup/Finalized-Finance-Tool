@@ -19,7 +19,7 @@ LIVE SNAPSHOT (right now)
 CashApp balance : ${snapshot.cashapp}
 Chase balance   : ${snapshot.chase}
 Total balance   : ${snapshot.balance}
-You Can Spend   : ${snapshot.spendable}   ← balance minus every obligation due this week
+You Can Spend   : ${snapshot.spendable}   ← balance + paycheck + EarnIn pull − all obligations this week
 Obligations due this week: ${snapshot.obligationsTotal}
   Breakdown: ${snapshot.obligationsBreakdown}
 

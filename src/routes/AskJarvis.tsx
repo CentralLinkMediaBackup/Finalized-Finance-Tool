@@ -8,6 +8,7 @@ import { useApp } from "@/contexts/AppContext";
 import {
   billsDueWithin, startOfWeek, endOfWeek, parseYmd, addDays, fmt,
   getWeekType, WEEK_TYPE_LABELS, clmMonthlyExpected, clmDueThisWeek,
+  closestFridayOnOrAfter,
 } from "@/lib/finance";
 import { cn } from "@/lib/utils";
 
@@ -62,15 +63,25 @@ export default function AskJarvis() {
 
     const earninOwed = earninWithdrawals.filter((w) => !w.repaid).reduce((s, w) => s + Number(w.amount), 0);
 
+    // Incoming this week (same logic as Dashboard)
+    const nextSunday = addDays(startOfWeek(today), 7);
+    const nextFriday = closestFridayOnOrAfter(today);
+    const paycheckThisWeek = nextFriday < nextSunday ? settings.paycheck : 0;
+    const earninThisWeek = (settings.earnin.active && nextFriday < nextSunday)
+      ? settings.earnin.fri + settings.earnin.sat + settings.earnin.sun
+      : 0;
+
     const obligationsTotal = billsSum7 + tiltSum + injSum + earninOwed;
-    const spendable = balance - obligationsTotal; // NO floor — can be negative
+    const spendable = balance + paycheckThisWeek + earninThisWeek - obligationsTotal;
 
     // Breakdown string for Jarvis math
     const breakdownParts: string[] = [];
-    if (billsSum7 > 0) breakdownParts.push(`bills ${fmt(billsSum7)}`);
-    if (earninOwed > 0) breakdownParts.push(`EarnIn repay ${fmt(earninOwed)}`);
-    if (tiltSum > 0) breakdownParts.push(`Tilt ${fmt(tiltSum)}`);
-    if (injSum > 0) breakdownParts.push(`injections ${fmt(injSum)}`);
+    if (paycheckThisWeek > 0) breakdownParts.push(`+paycheck ${fmt(paycheckThisWeek)}`);
+    if (earninThisWeek > 0) breakdownParts.push(`+EarnIn pull ${fmt(earninThisWeek)}`);
+    if (billsSum7 > 0) breakdownParts.push(`-bills ${fmt(billsSum7)}`);
+    if (earninOwed > 0) breakdownParts.push(`-EarnIn repay ${fmt(earninOwed)}`);
+    if (tiltSum > 0) breakdownParts.push(`-Tilt ${fmt(tiltSum)}`);
+    if (injSum > 0) breakdownParts.push(`-injections ${fmt(injSum)}`);
 
     const weekByCategory: Record<string, number> = {};
     transactions.forEach((t) => {

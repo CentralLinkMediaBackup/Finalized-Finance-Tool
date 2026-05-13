@@ -65,9 +65,11 @@ export default function Dashboard() {
   // Total obligations due this week
   const obligationsThisWeek = billsReserveThisWeek + tiltDue + injRepayDue + earninOwed;
 
-  // Spendable = what's available right now (balance) minus everything reserved
-  // Does NOT include future income — only uses current balance vs obligations
-  const spendable = balance - obligationsThisWeek;
+  // Spendable = full cash flow through end of week:
+  // current balance + paycheck arriving Friday + new EarnIn pull this cycle
+  // minus everything owed this week (bills + EarnIn repay of LAST cycle + Tilt)
+  // EarnIn nets ~$0 (repay last cycle, pull new cycle), paycheck is the real driver
+  const spendable = balance + paycheckThisWeek + earninThisWeek - obligationsThisWeek;
 
   // ── Spending this period ───────────────────────────────────────────────────
   const spentToday = transactions
